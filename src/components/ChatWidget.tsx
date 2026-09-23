@@ -1,0 +1,233 @@
+import { useState, useRef, useEffect } from 'react';
+import { MessageSquareText, X, Send, ArrowRight, Sparkles } from 'lucide-react';
+import type { ParsedDocument, ThemeMode, SourceLocator, ChatMessage, MoodCategory } from '@/types';
+import { getMood, SHELL } from '@/moods';
+
+interface ChatWidgetProps {
+  document: ParsedDocument;
+  mode: ThemeMode;
+  category: MoodCategory;
+  onViewSource: (source: SourceLocator) => void;
+}
+
+export function ChatWidget({ document, mode, category, onViewSource }: ChatWidgetProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [typing, setTyping] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const mood = getMood(category, mode);
+  const muted = SHELL.warmGrey;
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, typing]);
+
+  const generateResponse = (query: string): ChatMessage => {
+    const lower = query.toLowerCase();
+
+    // Try to find a matching clause
+    const match = document.clauses.find(
+      (c) =>
+        c.title.toLowerCase().includes(lower) ||
+        c.description.toLowerCase().includes(lower) ||
+        c.clause_ref.includes(lower) ||
+        lower.includes(c.clause_ref) ||
+        c.excerpt.toLowerCase().includes(lower)
+    );
+
+    if (match) {
+      return {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: `Based on the document, ${match.title} (Clause ${match.clause_ref}, Page ${match.source.page}): ${match.description}`,
+        source: match.source,
+        grounded: true,
+      };
+    }
+
+    // Check if it's about general document info
+    if (lower.includes('summary') || lower.includes('overview') || lower.includes('what is this')) {
+      return {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: `This is a ${document.title}. ${document.subtitle}. The analysis flagged ${document.clauses.length} clauses across ${document.detected_roles.length} roles: ${document.detected_roles.join(', ')}.`,
+        grounded: true,
+        source: document.clauses[0]?.source,
+      };
+    }
+
+    // Ungrounded response
+    return {
+      id: `a-${Date.now()}`,
+      role: 'assistant',
+      content: "This isn't covered in the document you uploaded. You may want to clarify this with a legal professional.",
+      grounded: false,
+    };
+  };
+
+  const handleSend = () => {
+    if (!input.trim()) return;
+
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: 'user',
+      content: input.trim(),
+      grounded: true,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+    setTyping(true);
+
+    setTimeout(() => {
+      const response = generateResponse(userMsg.content);
+      setMessages((prev) => [...prev, response]);
+      setTyping(false);
+    }, 1000);
+  };
+
+  const suggestions = [
+    'What is the most important clause?',
+    'Explain the non-compete',
+    'What are my obligations?',
+  ];
+
+  return (
+    <>
+      {/* Collapsed state */}
+      {!expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="fixed bottom-5 right-5 z-40 flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl transition-all hover:scale-105"
+          style={{
+            background: SHELL.indigo,
+            color: '#fff',
+          }}
+        >
+          <MessageSquareText size={20} />
+          <span className="text-sm font-semibold">Ask a question about this document</span>
+        </button>
+      )}
+
+      {/* Expanded state */}
+      {expanded && (
+        <div
+          className="fixed bottom-5 right-5 z-40 w-[380px] max-w-[calc(100vw-2rem)] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          style={{
+            background: mode === 'dark' ? '#1C1C20' : '#FFFFFF',
+            border: `1px solid ${mode === 'dark' ? '#2A2A2E' : '#E0DDD8'}`,
+            height: 'min(560px, calc(100vh - 3rem))',
+          }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3" style={{ background: SHELL.indigo, color: '#fff' }}>
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} />
+              <span className="text-sm font-semibold">Ask about this document</span>
+            </div>
+            <button onClick={() => setExpanded(false)} className="p-1 rounded-lg transition-colors hover:bg-white/20">
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+            {messages.length === 0 && (
+              <div className="text-center py-6">
+                <p className="text-sm mb-4" style={{ color: muted }}>
+                  Ask anything about "{document.title}". I'll answer based only on the document content.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => { setInput(s); }}
+                      className="text-xs text-left px-3 py-2 rounded-lg transition-colors hover:bg-black/5"
+                      style={{
+                        background: mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                        color: mode === 'dark' ? '#D0D0D4' : '#3A3A3A',
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className="flex flex-col"
+                style={{ alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}
+              >
+                <div
+                  className="max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed"
+                  style={{
+                    background: msg.role === 'user'
+                      ? SHELL.indigo
+                      : (mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
+                    color: msg.role === 'user' ? '#fff' : (mode === 'dark' ? '#E0E0E4' : '#2A2A2A'),
+                    borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                  }}
+                >
+                  {msg.content}
+                  {msg.grounded && msg.source && (
+                    <button
+                      onClick={() => onViewSource(msg.source!)}
+                      className="flex items-center gap-1 mt-2 text-xs font-medium transition-opacity hover:opacity-70"
+                      style={{ color: msg.role === 'user' ? '#fff' : mood.accent }}
+                    >
+                      View in document <ArrowRight size={11} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {typing && (
+              <div className="flex items-center gap-1.5 px-3 py-2">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="w-2 h-2 rounded-full animate-bounce"
+                    style={{
+                      background: muted,
+                      animationDelay: `${i * 0.15}s`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <div
+            className="px-3 py-3 border-t flex items-center gap-2"
+            style={{ borderColor: mode === 'dark' ? '#2A2A2E' : '#E0DDD8' }}
+          >
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder="Type your question..."
+              className="flex-1 bg-transparent text-sm outline-none"
+              style={{ color: mode === 'dark' ? '#E0E0E4' : '#2A2A2A' }}
+            />
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="p-2 rounded-lg transition-all disabled:opacity-40"
+              style={{ background: SHELL.indigo, color: '#fff' }}
+            >
+              <Send size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
