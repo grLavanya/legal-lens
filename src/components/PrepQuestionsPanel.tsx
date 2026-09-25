@@ -3,6 +3,7 @@ import { ArrowRight, Sparkles, Users } from 'lucide-react';
 import type { ParsedDocument, ThemeMode, SourceLocator, MoodCategory, PrepQuestion } from '@/types';
 import { getMood, SHELL } from '@/moods';
 import { AudienceSelector } from '@/components/AudienceSelector';
+import { generatePrepQuestions } from '@/lib/generatePrepQuestions';
 
 interface PrepQuestionsPanelProps {
   document: ParsedDocument;
@@ -15,43 +16,23 @@ export function PrepQuestionsPanel({ document, mode, category, onViewSource }: P
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [generated, setGenerated] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<PrepQuestion[]>([]);
   const mood = getMood(category, mode);
   const muted = SHELL.warmGrey;
 
-  const generateQuestions = () => {
+  const generateQuestions = async () => {
     setLoading(true);
-    setTimeout(() => {
-      const role = selectedRole ?? 'general';
-      const baseQuestions: PrepQuestion[] = document.clauses
-        .filter((c) => role === 'general' || c.relevant_to.includes(role))
-        .slice(0, 5)
-        .map((c) => ({
-          id: `q-${c.id}`,
-          question: `Can you explain the implications of ${c.title.toLowerCase()} (${c.clause_ref}) and whether this is standard or negotiable?`,
-          context: c.description,
-          source: c.source,
-        }));
-
-      if (baseQuestions.length === 0) {
-        setQuestions([
-          {
-            id: 'q-general-1',
-            question: 'What are the most important clauses I should focus on in this document?',
-            context: 'A general overview of the document\'s key terms.',
-          },
-          {
-            id: 'q-general-2',
-            question: 'Are there any clauses that are unusual or non-standard compared to typical agreements of this type?',
-            context: 'Ask about industry norms and benchmark comparisons.',
-          },
-        ]);
-      } else {
-        setQuestions(baseQuestions);
-      }
+    setError(null);
+    try {
+      const result = await generatePrepQuestions(document, selectedRole);
+      setQuestions(result);
       setGenerated(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate questions. Please try again.');
+    } finally {
       setLoading(false);
-    }, 1200);
+    }
   };
 
   return (
@@ -100,6 +81,10 @@ export function PrepQuestionsPanel({ document, mode, category, onViewSource }: P
               </>
             )}
           </button>
+
+          {error && (
+            <p className="text-xs mt-3" style={{ color: '#DC2626' }}>{error}</p>
+          )}
         </div>
       ) : (
         <div>

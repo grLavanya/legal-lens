@@ -4,6 +4,8 @@ import { UploadScreen } from '@/components/UploadScreen';
 import { ReportView } from '@/components/ReportView';
 import { ChatWidget } from '@/components/ChatWidget';
 import { DocumentViewer } from '@/components/DocumentViewer';
+import { analyzeDocument } from '@/lib/analyzeDocument';
+import type { ExtractedPage } from '@/lib/extractText';
 
 function App() {
   const [mode, setMode] = useState<ThemeMode>('light');
@@ -14,6 +16,12 @@ function App() {
   const toggleMode = () => setMode((m) => (m === 'dark' ? 'light' : 'dark'));
 
   const handleSelectDocument = (doc: ParsedDocument) => {
+    setCurrentDoc(doc);
+    setView('report');
+  };
+
+  const handleFileUploaded = async (pages: ExtractedPage[], fileName: string) => {
+    const doc = await analyzeDocument(pages, fileName);
     setCurrentDoc(doc);
     setView('report');
   };
@@ -34,6 +42,7 @@ function App() {
           mode={mode}
           onToggleMode={toggleMode}
           onSelectDocument={handleSelectDocument}
+          onFileUploaded={handleFileUploaded}
         />
       )}
       {view === 'report' && currentDoc && (

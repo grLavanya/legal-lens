@@ -4,25 +4,50 @@ import { SHELL } from '@/moods';
 import type { ThemeMode } from '@/types';
 import { SAMPLE_DOCUMENTS } from '@/mockData';
 import type { ParsedDocument } from '@/types';
+import { extractTextFromFile, type ExtractedPage } from '@/lib/extractText';
 
 interface UploadScreenProps {
   mode: ThemeMode;
   onToggleMode: () => void;
   onSelectDocument: (doc: ParsedDocument) => void;
+  onFileUploaded: (pages: ExtractedPage[], fileName: string) => Promise<void>;
 }
 
-export function UploadScreen({ mode, onToggleMode, onSelectDocument }: UploadScreenProps) {
+export function UploadScreen({ mode, onToggleMode, onSelectDocument, onFileUploaded }: UploadScreenProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const processFile = async (file: File) => {
+    setError(null);
+    setUploading(true);
+    try {
+      const pages = await extractTextFromFile(file);
+      const fullText = pages.map((p) => p.text).join('\n\n');
+
+      if (fullText.trim().length < 50) {
+        throw new Error('Could not extract readable text from this file. Try a different document.');
+      }
+
+      await onFileUploaded(pages, file.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong reading this file.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    setUploading(true);
-    setTimeout(() => {
-      setUploading(false);
-      onSelectDocument(SAMPLE_DOCUMENTS[0]);
-    }, 1800);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+    e.target.value = ''; // allow re-selecting the same file later
   };
 
   const handleSampleClick = (doc: ParsedDocument) => {
@@ -90,7 +115,7 @@ export function UploadScreen({ mode, onToggleMode, onSelectDocument }: UploadScr
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
-            onClick={() => { setUploading(true); setTimeout(() => { setUploading(false); onSelectDocument(SAMPLE_DOCUMENTS[0]); }, 1800); }}
+            onClick={() => document.getElementById('file-input')?.click()}
             className="rounded-2xl border-2 border-dashed p-10 text-center cursor-pointer transition-all duration-300"
             style={{
               borderColor: isDragging ? SHELL.indigo : (mode === 'dark' ? '#2A2A2E' : '#D8D4CE'),
@@ -98,6 +123,13 @@ export function UploadScreen({ mode, onToggleMode, onSelectDocument }: UploadScr
               transform: isDragging ? 'scale(1.01)' : 'scale(1)',
             }}
           >
+            <input
+              id="file-input"
+              type="file"
+              accept=".pdf,.txt"
+              className="hidden"
+              onChange={handleFileInputChange}
+            />
             {uploading ? (
               <div className="flex flex-col items-center gap-4">
                 <div className="relative w-12 h-12">
@@ -115,8 +147,11 @@ export function UploadScreen({ mode, onToggleMode, onSelectDocument }: UploadScr
                 </div>
                 <div>
                   <p className="text-base font-semibold mb-1">Drop your document here, or click to browse</p>
-                  <p className="text-sm" style={{ color: muted }}>PDF, DOCX, or TXT — up to 50MB</p>
+                  <p className="text-sm" style={{ color: muted }}>PDF or TXT — up to 50MB</p>
                 </div>
+                {error && (
+                  <p className="text-sm mt-1" style={{ color: '#DC2626' }}>{error}</p>
+                )}
               </div>
             )}
           </div>

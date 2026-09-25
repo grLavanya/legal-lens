@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { MessageSquareText, X, Send, ArrowRight, Sparkles } from 'lucide-react';
 import type { ParsedDocument, ThemeMode, SourceLocator, ChatMessage, MoodCategory } from '@/types';
 import { getMood, SHELL } from '@/moods';
+import { askQuestion } from '@/lib/askQuestion';
 
 interface ChatWidgetProps {
   document: ParsedDocument;
@@ -25,50 +26,7 @@ export function ChatWidget({ document, mode, category, onViewSource }: ChatWidge
     }
   }, [messages, typing]);
 
-  const generateResponse = (query: string): ChatMessage => {
-    const lower = query.toLowerCase();
-
-    // Try to find a matching clause
-    const match = document.clauses.find(
-      (c) =>
-        c.title.toLowerCase().includes(lower) ||
-        c.description.toLowerCase().includes(lower) ||
-        c.clause_ref.includes(lower) ||
-        lower.includes(c.clause_ref) ||
-        c.excerpt.toLowerCase().includes(lower)
-    );
-
-    if (match) {
-      return {
-        id: `a-${Date.now()}`,
-        role: 'assistant',
-        content: `Based on the document, ${match.title} (Clause ${match.clause_ref}, Page ${match.source.page}): ${match.description}`,
-        source: match.source,
-        grounded: true,
-      };
-    }
-
-    // Check if it's about general document info
-    if (lower.includes('summary') || lower.includes('overview') || lower.includes('what is this')) {
-      return {
-        id: `a-${Date.now()}`,
-        role: 'assistant',
-        content: `This is a ${document.title}. ${document.subtitle}. The analysis flagged ${document.clauses.length} clauses across ${document.detected_roles.length} roles: ${document.detected_roles.join(', ')}.`,
-        grounded: true,
-        source: document.clauses[0]?.source,
-      };
-    }
-
-    // Ungrounded response
-    return {
-      id: `a-${Date.now()}`,
-      role: 'assistant',
-      content: "This isn't covered in the document you uploaded. You may want to clarify this with a legal professional.",
-      grounded: false,
-    };
-  };
-
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
 
     const userMsg: ChatMessage = {
@@ -81,17 +39,37 @@ export function ChatWidget({ document, mode, category, onViewSource }: ChatWidge
     setInput('');
     setTyping(true);
 
-    setTimeout(() => {
-      const response = generateResponse(userMsg.content);
+    try {
+      const { answer, source } = await askQuestion(document, userMsg.content);
+      const isGrounded = source !== null && !answer.toLowerCase().includes("isn't covered in the document");
+
+      const response: ChatMessage = {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: answer,
+        source: source ?? undefined,
+        grounded: isGrounded,
+      };
       setMessages((prev) => [...prev, response]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: "Something went wrong answering that. Please try again.",
+          grounded: false,
+        },
+      ]);
+    } finally {
       setTyping(false);
-    }, 1000);
+    }
   };
 
   const suggestions = [
     'What is the most important clause?',
-    'Explain the non-compete',
     'What are my obligations?',
+    'Summarize this document',
   ];
 
   return (
