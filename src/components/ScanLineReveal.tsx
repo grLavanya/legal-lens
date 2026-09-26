@@ -105,7 +105,7 @@ export function ScanLineReveal({ accent, onComplete, children }: ScanLineRevealP
           <span
             className="font-mono text-xs px-2 py-1 rounded whitespace-nowrap"
             style={{
-              color: accent,
+              color: '#FFFFFF',
               background: '#0a0a0a',
               letterSpacing: '0.05em',
             }}
